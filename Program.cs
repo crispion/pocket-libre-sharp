@@ -18,6 +18,7 @@ try
     {
         "pair" => await PairAsync(),
         "list" => await ListAsync(),
+        "download" => await DownloadAsync(),
         _ => Usage(),
     };
 }
@@ -121,6 +122,56 @@ async Task<int> ListAsync()
     return 0;
 }
 
+async Task<int> DownloadAsync()
+{
+    var fileArg = OptionValue("--file");
+    if (dateArg is null || fileArg is null)
+        throw new PocketException("Ange både --date och --file (se 'list' för datum och filnamn).");
+
+    var config = Config.Load()
+        ?? throw new PocketException("Ingen sparad nyckel. Kör 'PocketLister pair' först.");
+
+    // Standard: spara i aktuell mapp. --out kan vara en mapp eller ett fullständigt filnamn.
+    var localName = Path.GetFileName(fileArg);
+    if (!Path.HasExtension(localName)) localName += ".mp3";
+    var outArg = OptionValue("--out");
+    var target = outArg is null ? localName
+        : Directory.Exists(outArg) ? Path.Combine(outArg, localName)
+        : outArg;
+
+    var (address, _) = await FindDeviceAsync();
+    await using var pocket = await PocketDevice.ConnectAsync(address, useA3);
+    pocket.Verbose = verbose;
+    await pocket.AuthenticateAsync(config.Key);
+
+    Console.WriteLine($"Laddar ner {dateArg}/{fileArg}…");
+    var started = DateTime.UtcNow;
+    var lastShown = DateTime.MinValue;
+    var progress = new SyncProgress(p =>
+    {
+        // Uppdatera raden högst fyra gånger per sekund.
+        if (verbose || (DateTime.UtcNow - lastShown).TotalMilliseconds < 250) return;
+        lastShown = DateTime.UtcNow;
+        var percent = p.Total > 0 ? 100.0 * p.Received / p.Total : 0;
+        Console.Write($"\r  {p.Received / 1024.0:F0} / {p.Total / 1024.0:F0} kB  ({percent:F0} %)   ");
+    });
+
+    var (data, expected) = await pocket.DownloadAsync(dateArg, fileArg, progress);
+    await File.WriteAllBytesAsync(target, data);
+
+    var seconds = Math.Max((DateTime.UtcNow - started).TotalSeconds, 0.1);
+    Console.WriteLine();
+    Console.WriteLine($"Sparade {data.Length} byte till {Path.GetFullPath(target)} " +
+                      $"({data.Length / 1024.0 / seconds:F1} kB/s).");
+
+    if (expected > 0 && data.Length != expected)
+    {
+        Console.WriteLine($"Varning: enheten uppgav {expected} byte – filen kan vara ofullständig.");
+        return 2;
+    }
+    return 0;
+}
+
 // --------------------------------------------------------------------- Hjälp
 
 async Task<(ulong Address, string Name)> FindDeviceAsync()
@@ -149,6 +200,7 @@ int Usage()
           PocketLister pair --key <nyckel> Använd en befintlig 16-teckens sessionsnyckel
           PocketLister list                Lista alla filer på enheten
           PocketLister list --date 2026-11-14
+          PocketLister download --date 2026-11-14 --file <filnamn> [--out <mapp eller fil>]
 
         Flaggor:
           --verbose   Visa all BLE-trafik
@@ -156,6 +208,13 @@ int Usage()
           --force     Skriv över sparad nyckel vid 'pair'
         """);
     return 1;
+}
+
+/// <summary>Anropar återkopplingen direkt på anropande tråd (Progress&lt;T&gt; köar i trådpoolen).</summary>
+internal sealed class SyncProgress(Action<(long Received, long Total)> report)
+    : IProgress<(long Received, long Total)>
+{
+    public void Report((long Received, long Total) value) => report(value);
 }
 
 // ------------------------------------------------------------- Konfiguration
