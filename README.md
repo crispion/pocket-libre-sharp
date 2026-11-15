@@ -4,24 +4,18 @@ A small Windows console application that connects to a Pocket AI voice recorder 
 
 > **Unofficial.** The Pocket's Bluetooth protocol is not published by the manufacturer. This app relies on the protocol as documented by the community projects [private-pocket](https://github.com/Incept5-AI/private-pocket) and [pocket-libre](https://github.com/shahcolate/pocket-libre). A firmware update may change the protocol and break the app.
 
-The app's console output is in Swedish.
+This is inspired by https://github.com/shahcolate/pocket-libre and developed using Claude Code
 
 ## Requirements
 
 - Windows 10 (version 2004 / build 19041) or later, with a Bluetooth LE adapter
-- .NET 8 SDK or later
+- .NET 10 SDK or later
 - A Pocket recorder, switched on and within range
 - The device's 16-character session key (see [Pairing](#pairing))
 
 No NuGet packages are needed; the app uses the Bluetooth APIs built into Windows.
 
 ## Build
-
-Place `Program.cs`, `PocketDevice.cs` and `PocketLister.csproj` in the same folder, then:
-
-```
-dotnet build
-```
 
 The examples below use `dotnet run --`. After building you can also run `PocketLister.exe` from `bin\Debug\net8.0-windows10.0.19041.0\` with the same arguments.
 
