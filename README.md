@@ -166,3 +166,8 @@ Messages are `&`-separated ASCII. The app sends `APP&…`; the device answers `M
 ## Legal
 
 This project is not affiliated with or endorsed by the maker of the Pocket recorder. Use it only with a device you own.
+
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

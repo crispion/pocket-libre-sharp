@@ -24,57 +24,57 @@ try
 }
 catch (PocketException ex)
 {
-    Console.Error.WriteLine($"Fel: {ex.Message}");
+    Console.Error.WriteLine($"Error: {ex.Message}");
     return 1;
 }
 
-// ------------------------------------------------------------------ Kommandon
+// ------------------------------------------------------------------- Commands
 
 async Task<int> PairAsync()
 {
     var config = Config.Load();
     if (config is not null && keyArg is null && !force)
     {
-        Console.WriteLine("Det finns redan en sparad nyckel. Kör med --force för att parkoppla om");
-        Console.WriteLine("(enheten måste då vara fabriksåterställd), eller kör 'list' direkt.");
+        Console.WriteLine("A key is already saved. Run with --force to pair again");
+        Console.WriteLine("(the device must then be factory reset), or run 'list' directly.");
         return 1;
     }
 
-    // Ingen --key: generera en ny nyckel för en fabriksåterställd enhet.
-    // Med --key: använd en befintlig nyckel (t.ex. den som Pocket-appen redan använder).
+    // No --key: generate a new key for a factory-reset device.
+    // With --key: use an existing key (e.g. the one the Pocket app already uses).
     var isNewKey = keyArg is null;
     var key = keyArg ?? RandomNumberGenerator.GetString("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 16);
     if (key.Length != 16 || !key.All(char.IsAsciiLetterOrDigit))
-        throw new PocketException("Sessionsnyckeln måste vara exakt 16 bokstäver/siffror.");
+        throw new PocketException("The session key must be exactly 16 letters/digits.");
 
     if (isNewKey)
     {
-        Console.WriteLine("Återställ enheten först: trippelklicka på sidoknappen tills lampan blinkar rött,");
-        Console.WriteLine("håll sedan in knappen tills den pulserar blått. Tryck Enter när det är klart.");
+        Console.WriteLine("Reset the device first: triple-click the side button until the light blinks red,");
+        Console.WriteLine("then hold the button until it pulses blue. Press Enter when done.");
         Console.ReadLine();
     }
 
     var (address, name) = await FindDeviceAsync();
 
-    // Spara nyckeln INNAN den skickas: enheten kan hinna koppla ner innan svaret kommer,
-    // och då får nyckeln inte gå förlorad.
+    // Save the key BEFORE sending it: the device may disconnect before the reply arrives,
+    // and the key must not be lost then.
     new Config(key, address).Save();
 
     await using var pocket = await PocketDevice.ConnectAsync(address, useA3);
     pocket.Verbose = verbose;
     await pocket.AuthenticateAsync(key);
 
-    Console.WriteLine($"Parkopplad med {name}.");
-    Console.WriteLine($"Nyckeln är sparad i {Config.FilePath}");
+    Console.WriteLine($"Paired with {name}.");
+    Console.WriteLine($"The key is saved in {Config.FilePath}");
     if (isNewKey)
-        Console.WriteLine("Enheten kopplar ner efter parkopplingen – vänta ett par sekunder och kör sedan 'list'.");
+        Console.WriteLine("The device disconnects after pairing – wait a few seconds, then run 'list'.");
     return 0;
 }
 
 async Task<int> ListAsync()
 {
     var config = Config.Load()
-        ?? throw new PocketException("Ingen sparad nyckel. Kör 'PocketLister pair' först.");
+        ?? throw new PocketException("No saved key. Run 'PocketLister pair' first.");
 
     var (address, name) = await FindDeviceAsync();
     await using var pocket = await PocketDevice.ConnectAsync(address, useA3);
@@ -83,7 +83,7 @@ async Task<int> ListAsync()
 
     var battery = await pocket.GetBatteryAsync();
     var firmware = await pocket.GetFirmwareAsync();
-    Console.WriteLine($"{name}  ·  batteri {battery ?? "?"} %  ·  firmware {firmware ?? "?"}");
+    Console.WriteLine($"{name}  ·  battery {battery ?? "?"} %  ·  firmware {firmware ?? "?"}");
     Console.WriteLine();
 
     List<string> dates;
@@ -96,8 +96,8 @@ async Task<int> ListAsync()
         var fromDevice = await pocket.ListDatesAsync();
         if (fromDevice is null)
         {
-            // Äldre firmware kan sakna LIST_DIRS – fråga då dag för dag, 30 dagar bakåt.
-            Console.WriteLine("(Enheten svarade inte på LIST_DIRS – kontrollerar de senaste 30 dagarna.)");
+            // Older firmware may lack LIST_DIRS – then ask day by day, 30 days back.
+            Console.WriteLine("(The device did not respond to LIST_DIRS – checking the last 30 days.)");
             fromDevice = Enumerable.Range(0, 30)
                 .Select(i => DateTime.Today.AddDays(-i).ToString("yyyy-MM-dd"))
                 .ToList();
@@ -118,7 +118,7 @@ async Task<int> ListAsync()
     }
 
     Console.WriteLine();
-    Console.WriteLine(total == 0 ? "Inga filer hittades." : $"{total} filer totalt.");
+    Console.WriteLine(total == 0 ? "No files found." : $"{total} files in total.");
     return 0;
 }
 
@@ -126,12 +126,12 @@ async Task<int> DownloadAsync()
 {
     var fileArg = OptionValue("--file");
     if (dateArg is null || fileArg is null)
-        throw new PocketException("Ange både --date och --file (se 'list' för datum och filnamn).");
+        throw new PocketException("Specify both --date and --file (see 'list' for dates and file names).");
 
     var config = Config.Load()
-        ?? throw new PocketException("Ingen sparad nyckel. Kör 'PocketLister pair' först.");
+        ?? throw new PocketException("No saved key. Run 'PocketLister pair' first.");
 
-    // Standard: spara i aktuell mapp. --out kan vara en mapp eller ett fullständigt filnamn.
+    // Default: save in the current folder. --out can be a folder or a full file name.
     var localName = Path.GetFileName(fileArg);
     if (!Path.HasExtension(localName)) localName += ".mp3";
     var outArg = OptionValue("--out");
@@ -144,12 +144,12 @@ async Task<int> DownloadAsync()
     pocket.Verbose = verbose;
     await pocket.AuthenticateAsync(config.Key);
 
-    Console.WriteLine($"Laddar ner {dateArg}/{fileArg}…");
+    Console.WriteLine($"Downloading {dateArg}/{fileArg}…");
     var started = DateTime.UtcNow;
     var lastShown = DateTime.MinValue;
     var progress = new SyncProgress(p =>
     {
-        // Uppdatera raden högst fyra gånger per sekund.
+        // Update the line at most four times per second.
         if (verbose || (DateTime.UtcNow - lastShown).TotalMilliseconds < 250) return;
         lastShown = DateTime.UtcNow;
         var percent = p.Total > 0 ? 100.0 * p.Received / p.Total : 0;
@@ -161,27 +161,27 @@ async Task<int> DownloadAsync()
 
     var seconds = Math.Max((DateTime.UtcNow - started).TotalSeconds, 0.1);
     Console.WriteLine();
-    Console.WriteLine($"Sparade {data.Length} byte till {Path.GetFullPath(target)} " +
+    Console.WriteLine($"Saved {data.Length} bytes to {Path.GetFullPath(target)} " +
                       $"({data.Length / 1024.0 / seconds:F1} kB/s).");
 
     if (expected > 0 && data.Length != expected)
     {
-        Console.WriteLine($"Varning: enheten uppgav {expected} byte – filen kan vara ofullständig.");
+        Console.WriteLine($"Warning: the device reported {expected} bytes – the file may be incomplete.");
         return 2;
     }
     return 0;
 }
 
-// --------------------------------------------------------------------- Hjälp
+// ---------------------------------------------------------------------- Helpers
 
 async Task<(ulong Address, string Name)> FindDeviceAsync()
 {
-    Console.WriteLine("Söker efter Pocket-enhet (PKT01…)…");
+    Console.WriteLine("Searching for Pocket device (PKT01…)…");
     var found = await PocketDevice.ScanAsync(TimeSpan.FromSeconds(20))
         ?? throw new PocketException(
-            "Hittade ingen enhet. Kontrollera att den är på, att Bluetooth är aktiverat på datorn " +
-            "och att Pocket-appen på telefonen är helt stängd (enheten tar bara en anslutning åt gången).");
-    Console.WriteLine($"Hittade {found.Name}.");
+            "No device found. Make sure it is on, that Bluetooth is enabled on the computer " +
+            "and that the Pocket app on the phone is fully closed (the device accepts only one connection at a time).");
+    Console.WriteLine($"Found {found.Name}.");
     return found;
 }
 
@@ -194,30 +194,30 @@ string? OptionValue(string name)
 int Usage()
 {
     Console.WriteLine("""
-        PocketLister – parkoppla med en Pocket-inspelare och lista filerna på den.
+        PocketLister – pair with a Pocket recorder and list the files on it.
 
-          PocketLister pair                Parkoppla en fabriksåterställd enhet med en ny nyckel
-          PocketLister pair --key <nyckel> Använd en befintlig 16-teckens sessionsnyckel
-          PocketLister list                Lista alla filer på enheten
+          PocketLister pair                Pair a factory-reset device with a new key
+          PocketLister pair --key <key>    Use an existing 16-character session key
+          PocketLister list                List all files on the device
           PocketLister list --date 2026-11-14
-          PocketLister download --date 2026-11-14 --file <filnamn> [--out <mapp eller fil>]
+          PocketLister download --date 2026-11-14 --file <filename> [--out <folder or file>]
 
-        Flaggor:
-          --verbose   Visa all BLE-trafik
-          --a3        Skicka kommandon på karakteristik …a3 i stället för …a2
-          --force     Skriv över sparad nyckel vid 'pair'
+        Flags:
+          --verbose   Show all BLE traffic
+          --a3        Send commands on characteristic …a3 instead of …a2
+          --force     Overwrite the saved key on 'pair'
         """);
     return 1;
 }
 
-/// <summary>Anropar återkopplingen direkt på anropande tråd (Progress&lt;T&gt; köar i trådpoolen).</summary>
+/// <summary>Invokes the callback directly on the calling thread (Progress&lt;T&gt; queues on the thread pool).</summary>
 internal sealed class SyncProgress(Action<(long Received, long Total)> report)
     : IProgress<(long Received, long Total)>
 {
     public void Report((long Received, long Total) value) => report(value);
 }
 
-// ------------------------------------------------------------- Konfiguration
+// ------------------------------------------------------------- Configuration
 
 internal sealed record Config(string Key, ulong Address)
 {

@@ -11,13 +11,13 @@ namespace PocketLister;
 public sealed record PocketFile(string Date, string Name, TimeSpan Duration);
 
 /// <summary>
-/// BLE-klient för Pocket-inspelaren (PKT01).
+/// BLE client for the Pocket recorder (PKT01).
 ///
-/// Protokollet är ren ASCII över en egen GATT-tjänst: appen skickar "APP&amp;..."
-/// och enheten svarar med "MCU&amp;..." som notifieringar. Enheten ignorerar alla
-/// kommandon tills den fått rätt sessionsnyckel (APP&amp;SK&amp;&lt;16 tecken&gt;).
-/// Protokollet är inte officiellt dokumenterat utan kartlagt av
-/// community-projekten private-pocket och pocket-libre.
+/// The protocol is plain ASCII over a custom GATT service: the app sends "APP&amp;..."
+/// and the device replies with "MCU&amp;..." as notifications. The device ignores all
+/// commands until it has received the correct session key (APP&amp;SK&amp;&lt;16 characters&gt;).
+/// The protocol is not officially documented but has been mapped by the
+/// community projects private-pocket and pocket-libre.
 /// </summary>
 public sealed class PocketDevice : IAsyncDisposable
 {
@@ -25,7 +25,7 @@ public sealed class PocketDevice : IAsyncDisposable
     public static readonly Guid CommandCharUuid = new("001120a2-2233-4455-6677-889912345678"); // write
     public static readonly Guid ReplyCharUuid = new("001120a3-2233-4455-6677-889912345678");   // write-no-response + notify
 
-    public static readonly Guid DataCharUuid = new("001120a1-2233-4455-6677-889912345678");    // notify, rå MP3-data
+    public static readonly Guid DataCharUuid = new("001120a1-2233-4455-6677-889912345678");    // notify, raw MP3 data
 
     private static readonly TimeSpan ReplyTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DataStallTimeout = TimeSpan.FromSeconds(15);
@@ -37,11 +37,11 @@ public sealed class PocketDevice : IAsyncDisposable
     private readonly GattCharacteristic? _dataChar;
     private readonly Channel<string> _incoming = Channel.CreateUnbounded<string>();
 
-    // Sätts bara under en pågående nedladdning; annan data på a1 (t.ex. liveljud) kastas.
+    // Set only during an ongoing download; other data on a1 (e.g. live audio) is discarded.
     private readonly object _downloadLock = new();
     private MemoryStream? _download;
 
-    /// <summary>Skriv ut all trafik (kommandon och svar) på konsolen.</summary>
+    /// <summary>Print all traffic (commands and replies) to the console.</summary>
     public bool Verbose { get; set; }
 
     public string Name => _device.Name;
@@ -56,9 +56,9 @@ public sealed class PocketDevice : IAsyncDisposable
         _dataChar = dataChar;
     }
 
-    // ---------------------------------------------------------------- Sökning
+    // ----------------------------------------------------------------- Scanning
 
-    /// <summary>Söker efter en enhet som annonserar ett namn som börjar med "PKT01".</summary>
+    /// <summary>Scans for a device advertising a name that starts with "PKT01".</summary>
     public static async Task<(ulong Address, string Name)?> ScanAsync(TimeSpan timeout)
     {
         var found = new TaskCompletionSource<(ulong, string)>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -83,25 +83,25 @@ public sealed class PocketDevice : IAsyncDisposable
         }
     }
 
-    // -------------------------------------------------------------- Anslutning
+    // -------------------------------------------------------------- Connection
 
-    /// <param name="address">Bluetooth-adress från <see cref="ScanAsync"/>.</param>
+    /// <param name="address">Bluetooth address from <see cref="ScanAsync"/>.</param>
     /// <param name="writeToReplyChar">
-    /// Skicka kommandon på ...a3 i stället för ...a2. Tillverkarens app skriver till a2,
-    /// men pocket-libre använder a3 för båda riktningarna – prova detta om a2 inte ger svar.
+    /// Send commands on ...a3 instead of ...a2. The manufacturer's app writes to a2,
+    /// but pocket-libre uses a3 for both directions – try this if a2 gives no reply.
     /// </param>
     public static async Task<PocketDevice> ConnectAsync(ulong address, bool writeToReplyChar = false)
     {
         var device = await BluetoothLEDevice.FromBluetoothAddressAsync(address)
-            ?? throw new PocketException("Kunde inte öppna Bluetooth-enheten.");
+            ?? throw new PocketException("Could not open the Bluetooth device.");
 
         var services = await device.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Uncached);
         if (services.Status != GattCommunicationStatus.Success || services.Services.Count == 0)
         {
             device.Dispose();
             throw new PocketException(
-                $"Hittade inte Pocket-tjänsten ({services.Status}). Enheten tar bara emot en anslutning " +
-                "åt gången – stäng Pocket-appen på telefonen och försök igen.");
+                $"Pocket service not found ({services.Status}). The device accepts only one connection " +
+                "at a time – close the Pocket app on the phone and try again.");
         }
 
         var service = services.Services[0];
@@ -110,7 +110,7 @@ public sealed class PocketDevice : IAsyncDisposable
         {
             service.Dispose();
             device.Dispose();
-            throw new PocketException($"Kunde inte läsa karakteristiker ({chars.Status}).");
+            throw new PocketException($"Could not read characteristics ({chars.Status}).");
         }
 
         var reply = chars.Characteristics.FirstOrDefault(c => c.Uuid == ReplyCharUuid);
@@ -121,7 +121,7 @@ public sealed class PocketDevice : IAsyncDisposable
         {
             service.Dispose();
             device.Dispose();
-            throw new PocketException("Enheten saknar de förväntade karakteristikerna (…a2/…a3).");
+            throw new PocketException("The device is missing the expected characteristics (…a2/…a3).");
         }
 
         var data = chars.Characteristics.FirstOrDefault(c => c.Uuid == DataCharUuid);
@@ -134,7 +134,7 @@ public sealed class PocketDevice : IAsyncDisposable
         if (cccd != GattCommunicationStatus.Success)
         {
             await pocket.DisposeAsync();
-            throw new PocketException($"Kunde inte slå på notifieringar ({cccd}).");
+            throw new PocketException($"Could not enable notifications ({cccd}).");
         }
 
         if (data is not null)
@@ -145,7 +145,7 @@ public sealed class PocketDevice : IAsyncDisposable
             if (dataCccd != GattCommunicationStatus.Success)
             {
                 await pocket.DisposeAsync();
-                throw new PocketException($"Kunde inte slå på notifieringar för ljuddata ({dataCccd}).");
+                throw new PocketException($"Could not enable notifications for audio data ({dataCccd}).");
             }
         }
 
@@ -165,8 +165,8 @@ public sealed class PocketDevice : IAsyncDisposable
     {
         var text = Encoding.ASCII.GetString(e.CharacteristicValue.ToArray());
 
-        // Ett meddelande per notifiering är det normala, men dela för säkerhets skull
-        // på radbrytningar och på varje ny "MCU&"-start.
+        // One message per notification is normal, but to be safe, split
+        // on line breaks and on every new "MCU&" start.
         foreach (var part in Regex.Split(text, @"[\r\n\0]+|(?=MCU&)"))
         {
             var msg = part.Trim();
@@ -176,7 +176,7 @@ public sealed class PocketDevice : IAsyncDisposable
         }
     }
 
-    // -------------------------------------------------------------- Kommandon
+    // ---------------------------------------------------------------- Commands
 
     private async Task SendAsync(string command)
     {
@@ -189,10 +189,10 @@ public sealed class PocketDevice : IAsyncDisposable
         var result = await _commandChar.WriteValueWithResultAsync(
             Encoding.ASCII.GetBytes(command).AsBuffer(), option);
         if (result.Status != GattCommunicationStatus.Success)
-            throw new PocketException($"Kunde inte skicka \"{command}\" ({result.Status}).");
+            throw new PocketException($"Could not send \"{command}\" ({result.Status}).");
     }
 
-    /// <summary>Väntar på nästa meddelande som börjar med något av prefixen. Null vid timeout.</summary>
+    /// <summary>Waits for the next message starting with any of the prefixes. Null on timeout.</summary>
     private async Task<string?> WaitForAsync(TimeSpan timeout, params string[] prefixes)
     {
         using var cts = new CancellationTokenSource(timeout);
@@ -216,7 +216,7 @@ public sealed class PocketDevice : IAsyncDisposable
         while (_incoming.Reader.TryRead(out _)) { }
     }
 
-    /// <summary>Skickar ett kommando och returnerar fältet efter svarsprefixet, eller null.</summary>
+    /// <summary>Sends a command and returns the field after the reply prefix, or null.</summary>
     private async Task<string?> QueryAsync(string command, string replyPrefix)
     {
         DrainIncoming();
@@ -226,8 +226,8 @@ public sealed class PocketDevice : IAsyncDisposable
     }
 
     /// <summary>
-    /// Skickar sessionsnyckeln. På en fabriksåterställd enhet blir den första nyckeln som
-    /// tas emot enhetens permanenta nyckel (parkoppling); annars måste den matcha.
+    /// Sends the session key. On a factory-reset device the first key received
+    /// becomes the device's permanent key (pairing); otherwise it must match.
     /// </summary>
     public async Task AuthenticateAsync(string sessionKey)
     {
@@ -238,16 +238,16 @@ public sealed class PocketDevice : IAsyncDisposable
         if (reply == "MCU&SK&OK") return;
 
         throw new PocketException(reply is null
-            ? "Inget svar på sessionsnyckeln. Antingen är nyckeln fel (enheten ignorerar då allt) " +
-              "eller så behöver kommandon skickas på den andra karakteristiken – prova --a3."
-            : $"Enheten avvisade sessionsnyckeln ({reply}).");
+            ? "No response to the session key. Either the key is wrong (the device then ignores everything) " +
+              "or commands need to be sent on the other characteristic – try --a3."
+            : $"The device rejected the session key ({reply}).");
     }
 
     public Task<string?> GetBatteryAsync() => QueryAsync("APP&BAT", "MCU&BAT&");
 
     public Task<string?> GetFirmwareAsync() => QueryAsync("APP&FW", "MCU&FW&");
 
-    /// <summary>Datum (YYYY-MM-DD) som har inspelningar. Null om enheten inte svarar på kommandot.</summary>
+    /// <summary>Dates (YYYY-MM-DD) that have recordings. Null if the device does not respond to the command.</summary>
     public async Task<List<string>?> ListDatesAsync()
     {
         DrainIncoming();
@@ -263,7 +263,7 @@ public sealed class PocketDevice : IAsyncDisposable
         }
     }
 
-    /// <summary>Filerna för ett datum (YYYY-MM-DD).</summary>
+    /// <summary>The files for a date (YYYY-MM-DD).</summary>
     public async Task<List<PocketFile>> ListFilesAsync(string date)
     {
         DrainIncoming();
@@ -272,7 +272,7 @@ public sealed class PocketDevice : IAsyncDisposable
         var files = new List<PocketFile>();
         while (true)
         {
-            // Filrader: MCU&F&<datum>&<fil>&<sekunder>   Slutmarkör: MCU&LIST&<antal>
+            // File lines: MCU&F&<date>&<file>&<seconds>   End marker: MCU&LIST&<count>
             var msg = await WaitForAsync(ReplyTimeout, "MCU&F&", "MCU&LIST&");
             if (msg is null || msg.StartsWith("MCU&LIST&", StringComparison.Ordinal)) return files;
 
@@ -284,15 +284,15 @@ public sealed class PocketDevice : IAsyncDisposable
     }
 
     /// <summary>
-    /// Laddar ner en fil (MP3). Enheten svarar med filstorleken (MCU&amp;U&amp;&lt;byte&gt;), skickar
-    /// sedan rådata som notifieringar på ...a1 och avslutar med MCU&amp;OFF.
+    /// Downloads a file (MP3). The device replies with the file size (MCU&amp;U&amp;&lt;bytes&gt;), then sends
+    /// the raw data as notifications on ...a1 and finishes with MCU&amp;OFF.
     /// </summary>
-    /// <returns>Mottagen data samt storleken enheten uppgav.</returns>
+    /// <returns>The received data and the size the device reported.</returns>
     public async Task<(byte[] Data, long ExpectedBytes)> DownloadAsync(
         string date, string fileName, IProgress<(long Received, long Total)>? progress = null)
     {
         if (_dataChar is null)
-            throw new PocketException("Enheten saknar karakteristiken för ljuddata (…a1).");
+            throw new PocketException("The device is missing the audio data characteristic (…a1).");
 
         DrainIncoming();
         var buffer = new MemoryStream();
@@ -304,9 +304,9 @@ public sealed class PocketDevice : IAsyncDisposable
 
             var head = await WaitForAsync(ReplyTimeout, "MCU&U&");
             if (head is null)
-                throw new PocketException("Inget svar på nedladdningsbegäran – kontrollera datum och filnamn.");
+                throw new PocketException("No response to the download request – check the date and file name.");
             if (!long.TryParse(head["MCU&U&".Length..], out var expected))
-                throw new PocketException($"Enheten avvisade nedladdningen ({head}).");
+                throw new PocketException($"The device rejected the download ({head}).");
 
             var lastLength = -1L;
             var lastProgress = DateTime.UtcNow;
@@ -327,8 +327,8 @@ public sealed class PocketDevice : IAsyncDisposable
 
                 if (expected > 0 && length >= expected) break;
 
-                // MCU&OFF kan komma före de sista datapaketen (olika karakteristiker),
-                // så ge datat en sekund till på sig efter slutmarkören.
+                // MCU&OFF may arrive before the last data packets (different characteristics),
+                // so give the data one more second after the end marker.
                 if (offSeenAt is null)
                 {
                     while (_incoming.Reader.TryRead(out var msg))
@@ -341,12 +341,12 @@ public sealed class PocketDevice : IAsyncDisposable
 
                 if (now - lastProgress > DataStallTimeout)
                     throw new PocketException(
-                        $"Nedladdningen avstannade efter {length} av {expected} byte.");
+                        $"The download stalled after {length} of {expected} bytes.");
 
                 await Task.Delay(50);
             }
 
-            // Vänta in slutmarkören så att den inte stör nästa kommando.
+            // Wait for the end marker so it does not interfere with the next command.
             if (offSeenAt is null) await WaitForAsync(TimeSpan.FromSeconds(2), "MCU&OFF");
 
             lock (_downloadLock) return (buffer.ToArray(), expected);
@@ -362,7 +362,7 @@ public sealed class PocketDevice : IAsyncDisposable
         _replyChar.ValueChanged -= OnReply;
         if (_dataChar is not null) _dataChar.ValueChanged -= OnData;
         _service.Dispose();
-        _device.Dispose(); // kopplar ner BLE-länken
+        _device.Dispose(); // disconnects the BLE link
         return ValueTask.CompletedTask;
     }
 }
